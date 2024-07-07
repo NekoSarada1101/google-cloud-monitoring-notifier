@@ -1,11 +1,10 @@
-# This example requires the 'message_content' intent.
-
-import os
-import requests
 import json
-from pprint import pformat
-import google.cloud.logging
 import logging
+import os
+from pprint import pformat
+
+import google.cloud.logging
+import requests
 
 # 標準 Logger の設定
 logging.basicConfig(
@@ -43,6 +42,7 @@ def monitoring_notify(event, context):
 
     logger.debug(f'response.status={pformat(response.status_code)}')
     logger.info('===== END cloud monitoring notifier =====')
+    logger.exception('test')
 
 
 if __name__ == '__main__':

@@ -2,6 +2,8 @@ import base64
 import json
 import logging
 import os
+import zoneinfo
+from datetime import datetime
 from pprint import pformat
 
 import google.cloud.logging
@@ -22,6 +24,11 @@ logging_client.setup_logging()
 logger.setLevel(logging.DEBUG)
 
 
+WEBHOOK_URL = os.environ['WEBHOOK_URL']
+ICON_IMAGE_URL = os.environ['ICON_IMAGE_URL']
+JST = zoneinfo.ZoneInfo('Asia/Tokyo')
+
+
 def monitoring_notify(event, context):
     try:
         logger.info('===== START cloud monitoring notifier =====')
@@ -34,39 +41,66 @@ def monitoring_notify(event, context):
         event_data = json.loads(event_data_json)['incident']
 
         logger.info('----- create post content -----')
-        webhook_url = os.environ['WEBHOOK_URL']
         headers = {'Content-Type': 'application/json'}
         content = f'''**Incident is ongoing**
-{event_data["condition_name"]}
-**Severity:** {event_data["severity"]}'''
+Policy: {event_data['policy_name']}
+Severity: {event_data["severity"]}
+'''
         embeds = [
             {
                 'title': 'Incident details',
-                'description': event_data["summary"],
                 'url': event_data["url"],
-                'color': 8782097
-            },
-            {
-                'title': event_data['policy_name'],
-                'description': event_data['condition']['conditionMatchedLog']['filter'],
-                'url': f'https://console.cloud.google.com/monitoring/alerting/policies/{event_data["condition"]["name"].split("/")[3]}?project={event_data["scoping_project_id"]}',
-                'color': 8421504
+                'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
+                'color': 16711680,
+                'footer': {
+                    'text': "Cloud Monitoring Notifier",
+                    'icon_url': ICON_IMAGE_URL
+                },
+                'author': {
+                    'name': '@Google Cloud',
+                    'url': f'https://console.cloud.google.com/home/dashboard?hl=ja&project={event_data["scoping_project_id"]}',
+                    'icon_url': 'https://avatars.slack-edge.com/2019-10-30/817024818759_0abdf89bb617c3003b21_512.png'
+                },
+                'fields': [
+                    {
+                        'name': 'Summary',
+                        'value': event_data['summary'],
+                    },
+                    {
+                        'name': 'Policy name',
+                        'value': event_data['policy_name'],
+                        'inline': True
+                    },
+                    {
+                        'name': 'Severity',
+                        'value': event_data["severity"],
+                        'inline': True
+                    },
+                    {
+                        'name': 'Started at',
+                        'value': datetime.fromtimestamp(event_data['started_at'], JST).strftime('%Y-%m-%d %H:%M:%S'),
+                    },
+                    {
+                        'name': 'Log query',
+                        'value': event_data['condition']['conditionMatchedLog']['filter'],
+                    },
+                ]
             },
         ]
 
         body = {
             'username': 'Cloud Monitoring Notifier',
-            'avatar_url': os.environ['ICON_IMAGE_URL'],
+            'avatar_url': ICON_IMAGE_URL,
             'content': content,
             'embeds': embeds
         }
 
-        logger.debug(f'webhook_url={webhook_url}')
+        logger.debug(f'webhook_url={WEBHOOK_URL}')
         logger.debug(f'headers={pformat(headers)}')
         logger.debug(f'body={pformat(body)}')
 
         logger.info('----- post message -----')
-        response = requests.post(webhook_url, json.dumps(body), headers=headers)
+        response = requests.post(WEBHOOK_URL, json.dumps(body), headers=headers)
 
         logger.debug(f'response.status={pformat(response.status_code)}')
         logger.info('===== END cloud monitoring notifier =====')

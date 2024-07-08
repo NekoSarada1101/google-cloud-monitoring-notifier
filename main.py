@@ -9,11 +9,10 @@ import requests
 
 # 標準 Logger の設定
 logging.basicConfig(
-    format="[%(asctime)s][%(levelname)s] %(message)s",
+    format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.DEBUG
 )
 logger = logging.getLogger()
-
 
 # Cloud Logging ハンドラを logger に接続
 logging_client = google.cloud.logging.Client()

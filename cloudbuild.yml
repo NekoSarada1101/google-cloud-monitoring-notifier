@@ -10,7 +10,7 @@ steps:
         "--source=.",
         "--trigger-topic=cloud-monitoring-notifier",
         "--runtime=python311",
-        "--memory=128M",
+        "--memory=256M",
         "--entry-point=monitoring_notify",
         "--update-env-vars=WEBHOOK_URL=${_WEBHOOK_URL},ICON_IMAGE_URL=${_ICON_IMAGE_URL}",
         "--service-account=discord-bot@slackbot-288310.iam.gserviceaccount.com",

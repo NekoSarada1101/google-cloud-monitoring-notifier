@@ -30,9 +30,9 @@ def monitoring_notify(event, context):
 
         # 2. インシデントのレベル
         incident_level = event_data.get("severity", 'Unknown')
-        color = 8421504  # 灰色
-        if incident_level == 'Error' or incident_level == "Emergency":
-            color = 16711680  # 赤
+        color = 16711680  # 赤
+        if incident_level == 'Unknown':
+            color = 8421504  # 灰色
         elif incident_level == 'Warning':
             color = 16776960  # 黄
 

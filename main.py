@@ -2,9 +2,8 @@ import base64
 import json
 import logging
 import os
-from time import timezone
+from datetime import datetime, timezone
 import zoneinfo
-from datetime import datetime
 from pprint import pformat
 import requests
 
@@ -31,16 +30,16 @@ def monitoring_notify(event, context):
 
         # 2. インシデントのレベル
         incident_level = event_data.get("severity", 'Unknown')
-        color = 8421504
-        if incident_level == 'Error' or "Emergency":
-            color = 255
+        color = 8421504  # 灰色
+        if incident_level == 'Error' or incident_level == "Emergency":
+            color = 16711680  # 赤
         elif incident_level == 'Warning':
-            color = 65535
+            color = 16776960  # 黄
 
         logger.info(f'Incident state: {incident_level}')
 
         # 4. Discord ペイロードの構築
-        content = f"**[ALERT - {incident_level}]**{event_data.get('policy_name')}"
+        content = f"**[ALERT - {incident_level}]** {event_data.get('policy_name')}"
 
         started_at = event_data.get('started_at')
         started_at_str = datetime.fromtimestamp(started_at, JST).strftime(

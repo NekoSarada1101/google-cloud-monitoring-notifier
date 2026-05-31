@@ -2,26 +2,14 @@ import base64
 import json
 import logging
 import os
+from time import timezone
 import zoneinfo
 from datetime import datetime
 from pprint import pformat
-
-import google.cloud.logging
 import requests
 
-# 標準 Logger の設定
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.DEBUG
-)
 logger = logging.getLogger()
-
-# Cloud Logging ハンドラを logger に接続
-logging_client = google.cloud.logging.Client()
-logging_client.setup_logging()
-
-# setup_logging() するとログレベルが INFO になるので DEBUG に変更
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 
 WEBHOOK_URL = os.environ['WEBHOOK_URL']
@@ -32,60 +20,63 @@ JST = zoneinfo.ZoneInfo('Asia/Tokyo')
 def monitoring_notify(event, context):
     try:
         logger.info('===== START cloud monitoring notifier =====')
-        logger.debug(f'event={pformat(event)}')
-        logger.debug(f'context={pformat(context)}')
 
-        logger.info('----- get pubsub event data -----')
+        # 1. Pub/Sub ペイロードのデコード
         event_data_json = base64.b64decode(event['data']).decode('utf-8')
-        logger.debug(f'event_data={event_data_json}')
-        event_data = json.loads(event_data_json)['incident']
+        event_data = json.loads(event_data_json).get('incident')
 
-        logger.info('----- create post content -----')
-        headers = {'Content-Type': 'application/json'}
-        content = f'''**Incident is ongoing**
-Policy: {event_data['policy_name']}
-Severity: {event_data["severity"]}
-'''
+        if not event_data:
+            logger.error("Payload does not contain 'incident' data.")
+            return
+
+        # 2. インシデントのレベル
+        incident_level = event_data.get("severity", 'Unknown')
+        color = 8421504
+        if incident_level == 'Error' or "Emergency":
+            color = 255
+        elif incident_level == 'Warning':
+            color = 65535
+
+        logger.info(f'Incident state: {incident_level}')
+
+        # 4. Discord ペイロードの構築
+        content = f"**[ALERT - {incident_level}]**{event_data.get('policy_name')}"
+
+        started_at = event_data.get('started_at')
+        started_at_str = datetime.fromtimestamp(started_at, JST).strftime(
+            '%Y-%m-%d %H:%M:%S') if started_at else 'Unknown'
+
         embeds = [
             {
                 'title': 'Incident details',
-                'url': event_data["url"],
-                'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S'),
-                'color': 16711680,
+                'url': event_data.get("url"),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'color': color,
                 'footer': {
                     'text': "Cloud Monitoring Notifier",
                     'icon_url': ICON_IMAGE_URL
                 },
-                'author': {
-                    'name': '@Google Cloud',
-                    'url': f'https://console.cloud.google.com/home/dashboard?hl=ja&project={event_data["scoping_project_id"]}',
-                    'icon_url': 'https://avatars.slack-edge.com/2019-10-30/817024818759_0abdf89bb617c3003b21_512.png'
-                },
                 'fields': [
                     {
-                        'name': 'Summary',
-                        'value': event_data['summary'],
+                        'name': 'Severity',
+                        'value': incident_level,
                     },
                     {
                         'name': 'Policy name',
-                        'value': event_data['policy_name'],
+                        'value': event_data.get('policy_name', 'Unknown'),
+                    },
+                    {
+                        'name': 'Started at (JST)',
+                        'value': started_at_str,
                         'inline': True
                     },
                     {
-                        'name': 'Severity',
-                        'value': event_data["severity"],
+                        'name': 'Condition',
+                        'value': event_data.get('condition_name', 'Unknown'),
                         'inline': True
-                    },
-                    {
-                        'name': 'Started at',
-                        'value': datetime.fromtimestamp(event_data['started_at'], JST).strftime('%Y-%m-%d %H:%M:%S'),
-                    },
-                    {
-                        'name': 'Log query',
-                        'value': event_data['condition']['conditionMatchedLog']['filter'],
                     },
                 ]
-            },
+            }
         ]
 
         body = {
@@ -95,17 +86,28 @@ Severity: {event_data["severity"]}
             'embeds': embeds
         }
 
-        logger.debug(f'webhook_url={WEBHOOK_URL}')
-        logger.debug(f'headers={pformat(headers)}')
-        logger.debug(f'body={pformat(body)}')
-
+        # 5. メッセージの送信と厳格なエラーハンドリング
         logger.info('----- post message -----')
-        response = requests.post(WEBHOOK_URL, json.dumps(body), headers=headers)
+        response = requests.post(
+            WEBHOOK_URL,
+            json=body,
+            headers={'Content-Type': 'application/json'},
+            timeout=10  # 無限ハングアップ防止
+        )
 
-        logger.debug(f'response.status={pformat(response.status_code)}')
+        # HTTPエラー（4xx, 5xx）の場合は例外を発生させ、Pub/Subにリトライを要求する
+        response.raise_for_status()
+
         logger.info('===== END cloud monitoring notifier =====')
+    except requests.exceptions.RequestException as re:
+        # ネットワーク層・HTTPステータスエラー
+        logger.error(f"Discord Webhook API Error: {re}")
+        raise  # リトライさせるために再送出
     except Exception as e:
-        logger.exception(e)
+        # その他の予期せぬエラー
+        logger.error(f"Unexpected Error: {e}")
+        logger.debug(f"Event payload: {pformat(event)}")
+        raise
 
 
 if __name__ == '__main__':
